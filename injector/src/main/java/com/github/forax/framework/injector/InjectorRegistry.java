@@ -1,10 +1,8 @@
 package com.github.forax.framework.injector;
 
 import java.beans.PropertyDescriptor;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
+import java.lang.annotation.Annotation;
+import java.util.*;
 import java.util.function.Supplier;
 
 
@@ -15,9 +13,7 @@ public final class InjectorRegistry {
         Objects.requireNonNull(type);
         Objects.requireNonNull(o);
 
-        if (mapOfInjector.putIfAbsent(type,() -> o) != null){
-            throw new IllegalStateException("Already an instance for this type");
-        }
+        registerProvider(type,() -> o);
     }
 
 
@@ -38,9 +34,18 @@ public final class InjectorRegistry {
         }
     }
 
-
-    public List<PropertyDescriptor> findInjectableProperties(Class type){
-
+    //package private for testing
+    static List<PropertyDescriptor> findInjectableProperties(Class type){
+        Objects.requireNonNull(type);
+        return Arrays.stream(Utils.beanInfo(type).getPropertyDescriptors())
+                .filter(p-> {
+                    var write = p.getWriteMethod();
+                    if (write != null){
+                        return write.isAnnotationPresent(Inject.class);
+                    }
+                    return false;
+                })
+                .toList();
     }
 
 }
