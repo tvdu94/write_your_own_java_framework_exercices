@@ -2,6 +2,7 @@ package com.github.forax.framework.injector;
 
 import java.beans.PropertyDescriptor;
 import java.lang.annotation.Annotation;
+import java.lang.reflect.Method;
 import java.util.*;
 import java.util.function.Supplier;
 
@@ -18,7 +19,12 @@ public final class InjectorRegistry {
 
 
     public <T> T lookupInstance(Class<T> type){
-        T obj = type.cast(mapOfInjector.get(type).get());
+        Objects.requireNonNull(type);
+        var test = mapOfInjector.get(type);
+        if (test == null){
+            throw new IllegalStateException();
+        }
+        T obj = type.cast(test.get());
         if (obj == null){
             throw new NullPointerException("No instance registered for this type");
         }
@@ -40,12 +46,30 @@ public final class InjectorRegistry {
         return Arrays.stream(Utils.beanInfo(type).getPropertyDescriptors())
                 .filter(p-> {
                     var write = p.getWriteMethod();
-                    if (write != null){
-                        return write.isAnnotationPresent(Inject.class);
-                    }
-                    return false;
+                    return write != null && write.isAnnotationPresent(Inject.class);
                 })
                 .toList();
+    }
+
+
+    public <T> void registerProviderClass(Class<T>  type,Class<? extends  T> providerClass){
+        Objects.requireNonNull(type);
+        Objects.requireNonNull(providerClass);
+
+        var constructor = Utils.defaultConstructor(providerClass);
+
+
+        var properties = findInjectableProperties(providerClass);
+
+        registerProvider(type, () -> {
+            var newProv = Utils.newInstance(constructor);
+
+            properties.stream().map(PropertyDescriptor::getWriteMethod)
+                    .forEach(method -> Utils.invokeMethod(newProv,method,lookupInstance(method.getParameterTypes()[0])));
+
+
+            return newProv;
+        });
     }
 
 }
