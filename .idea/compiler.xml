@@ -12,8 +12,5 @@
         <module name="injector" />
       </profile>
     </annotationProcessing>
-    <bytecodeTargetLevel>
-      <module name="write_your_own_java_framework_exercices" target="19" />
-    </bytecodeTargetLevel>
   </component>
 </project>
