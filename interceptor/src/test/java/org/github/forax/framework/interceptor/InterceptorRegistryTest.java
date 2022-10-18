@@ -262,7 +262,7 @@ public class InterceptorRegistryTest {
     }
   }  // end of Q3
 
-/*
+
   @Nested
   public class Q4 {
     @Test @Tag("Q4")
@@ -534,7 +534,7 @@ public class InterceptorRegistryTest {
     }
   }  // end of Q5
 
-
+/*
   @Nested
   class Q6 {
     @Test @Tag("Q6")
