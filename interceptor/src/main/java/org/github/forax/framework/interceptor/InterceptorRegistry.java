@@ -13,33 +13,50 @@ import java.util.stream.Stream;
 
 
 public final class InterceptorRegistry {
-  private AroundAdvice advice;
+  private final HashMap<Class<?>, List<AroundAdvice>> adviceMap = new HashMap<>();
+  private final HashMap<Class<?>, List<Interceptor>> interceptorMap = new HashMap<>();
 
   public void addAroundAdvice(Class annotationClass, AroundAdvice aroundAdvice) {
     Objects.requireNonNull(annotationClass);
     Objects.requireNonNull(aroundAdvice);
-    this.advice = aroundAdvice;
+    adviceMap.computeIfAbsent(annotationClass, __ -> new ArrayList<>()).add(aroundAdvice);
+  }
+
+  public void addInterceptor(Class annotationClass, Interceptor interceptor) {
+    Objects.requireNonNull(annotationClass);
+    Objects.requireNonNull(interceptor);
+    interceptorMap.computeIfAbsent(annotationClass, __ -> new ArrayList<>()).add(interceptor);
   }
 
   public <T> T createProxy(Class<T> type, T delegate){
     Objects.requireNonNull(type);
     Objects.requireNonNull(delegate);
+
     return type.cast(Proxy.newProxyInstance(type.getClassLoader()
       , new Class<?>[]{type}
       , (proxy, method,args) -> {
-          advice.before(delegate,method,args);
+        var advices = findAdvices(method);
+        for(var advice : advices) {
+            advice.before(delegate, method, args);
+          }
           Object result = null;
           try{
             result = Utils.invokeMethod(delegate,method,args);
           }
           finally {
-            advice.after(delegate,method,args,result);
-
+            for(var advice : Utils.reverseList(advices)) {
+              advice.after(delegate,method,args,result);            }
           }
           return result;
         }));
   }
 
+  private List<AroundAdvice> findAdvices(Method method){
+    return Arrays.stream(method.getAnnotations()).flatMap(annotation ->adviceMap.getOrDefault(annotation.annotationType(), List.of()).stream()).toList();
+  }
 
 
+  public  List<Interceptor> findInterceptors(Method method) {
+    return Arrays.stream(method.getAnnotations()).flatMap(annotation ->interceptorMap.getOrDefault(annotation.annotationType(), List.of()).stream()).toList();
+  }
 }
