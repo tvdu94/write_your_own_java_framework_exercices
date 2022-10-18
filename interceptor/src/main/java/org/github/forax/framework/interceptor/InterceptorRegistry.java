@@ -16,6 +16,7 @@ import java.util.stream.Stream;
 public final class InterceptorRegistry {
   private final HashMap<Class<?>, List<AroundAdvice>> adviceMap = new HashMap<>();
   private final HashMap<Class<?>, List<Interceptor>> interceptorMap = new HashMap<>();
+  private final HashMap<Method,Invocation> cache = new HashMap<>();
 
 /*  public void addAroundAdvice(Class annotationClass, AroundAdvice aroundAdvice) {
     Objects.requireNonNull(annotationClass);
@@ -28,6 +29,7 @@ public final class InterceptorRegistry {
     Objects.requireNonNull(annotationClass);
     Objects.requireNonNull(interceptor);
     interceptorMap.computeIfAbsent(annotationClass, __ -> new ArrayList<>()).add(interceptor);
+    cache.clear();
   }
 
   public <T> T createProxy(Class<T> type, T delegate){
@@ -37,19 +39,28 @@ public final class InterceptorRegistry {
     return type.cast(Proxy.newProxyInstance(type.getClassLoader()
       , new Class<?>[]{type}
       , (proxy, method,args) -> {
-          var interceptors = findInterceptors(method);
-          var invocation  = getInvocation(interceptors);
+        var invocation = cache.computeIfAbsent(method,m->{
+          var interceptors = findInterceptors(m);
+          return getInvocation(interceptors);
+        });
           return invocation.proceed(delegate,method,args);
         }));
   }
 
-  private List<AroundAdvice> findAdvices(Method method){
+ /* private List<AroundAdvice> findAdvices(Method method){
     return Arrays.stream(method.getAnnotations()).flatMap(annotation ->adviceMap.getOrDefault(annotation.annotationType(), List.of()).stream()).toList();
-  }
+  }*/
 
 
   public  List<Interceptor> findInterceptors(Method method) {
-    return Arrays.stream(method.getAnnotations()).flatMap(annotation ->interceptorMap.getOrDefault(annotation.annotationType(), List.of()).stream()).toList();
+    return Stream.of(
+      Arrays.stream(method.getDeclaringClass().getAnnotations()),
+      Arrays.stream(method.getAnnotations()),
+      Arrays.stream(method.getParameterAnnotations()).flatMap(Arrays::stream))
+      .flatMap(s -> s)
+      .flatMap(annotation ->interceptorMap.getOrDefault(annotation.annotationType(), List.of()).stream())
+      .distinct()
+      .toList();
   }
 
   static Invocation getInvocation(List<Interceptor> interceptorList) {
@@ -57,7 +68,7 @@ public final class InterceptorRegistry {
     for (Interceptor interceptor : Utils.reverseList(interceptorList)) {
       var oldInvocation = invocation;
       invocation = (instance, method,args) ->
-       interceptor.intercept(instance,method,args,oldInvocation);
+      interceptor.intercept(instance,method,args,oldInvocation);
     }
     return invocation;
   }
