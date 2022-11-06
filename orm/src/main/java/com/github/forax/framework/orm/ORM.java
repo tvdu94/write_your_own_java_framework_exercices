@@ -7,9 +7,12 @@ import java.beans.PropertyDescriptor;
 import java.io.IOException;
 import java.io.Serial;
 import java.lang.reflect.Constructor;
+import java.lang.reflect.InvocationHandler;
+import java.lang.reflect.Method;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Proxy;
 import java.sql.Connection;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
@@ -27,6 +30,9 @@ public final class ORM {
   private ORM() {
     throw new AssertionError();
   }
+
+
+
   @FunctionalInterface
   public interface TransactionBlock {
     void run() throws SQLException;
@@ -88,11 +94,13 @@ public final class ORM {
         lambda.run();
         connexion.commit();
       } catch (SQLException | RuntimeException exception) {
+        var cause = (exception instanceof UncheckedSQLException unchecked)? unchecked.getCause(): exception;
         connexion.rollback();
-        throw exception;
+        throw Utils.rethrow(cause);
       } finally {
         CONNECTION_THREAD_LOCAL.remove();
       }
+
     }
 
   }
@@ -179,7 +187,71 @@ public final class ORM {
 
 
 
+  @SuppressWarnings("unchecked")
+  public static <T> T createRepository(Class<T> type) {
+    Objects.requireNonNull(type);
+    var beanType = findBeanTypeFromRepository(type);
+    var tableName = findTableName(beanType);
 
+
+    InvocationHandler invocationHandler = (proxy,method,args) -> {
+      var connection = currentConnection();
+      try{
+        if (method.getName().equals("findAll")) {
+          var query = "SELECT * FROM " + tableName;
+          return findAll(connection, query, Utils.beanInfo(beanType), Utils.defaultConstructor(beanType));
+        }
+        else if(method.getName().equals("equals") || method.getName().equals("hashCode") || method.getName().equals("toString")){
+          throw new UnsupportedOperationException();
+        }else {
+          throw new IllegalStateException();
+        }
+      }
+      catch (SQLException e){
+        throw new UncheckedSQLException(e);
+      }
+    };
+
+    return (T) Proxy.newProxyInstance(type.getClassLoader(),
+    new Class<?>[] { type },
+    invocationHandler);
+  }
+
+
+
+  public   static Object toEntityClass(ResultSet resultSet, BeanInfo beanInfo, Constructor<?> constructor) throws SQLException {
+    var instance = Utils.newInstance(constructor);
+    var properties = beanInfo.getPropertyDescriptors();
+    for (var property : properties) {
+      var name = property.getName();
+      if (name.equals("class")) {
+        continue;
+      }
+      var value = resultSet.getObject(name);
+      Utils.invokeMethod(instance, property.getWriteMethod(), value);
+    }
+    return instance;
+  }
+
+
+
+  public static List<Object> findAll(Connection connection, String s, BeanInfo beanInfo, Constructor<?> constructor) throws SQLException {
+    List<Object> liste = new ArrayList<>();
+    try(PreparedStatement statement = connection.prepareStatement(s)){
+      try (ResultSet resultSet = statement.executeQuery()){
+        while(resultSet.next()) {
+          liste.add(toEntityClass(resultSet,beanInfo,constructor));
+        }
+      }
+      catch (SQLException | RuntimeException exception) {
+
+        connection.rollback();
+        throw exception;
+      }
+    }
+    connection.commit();
+    return liste;
+  }
 
 
 

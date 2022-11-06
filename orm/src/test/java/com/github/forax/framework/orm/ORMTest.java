@@ -590,7 +590,7 @@ public class ORMTest {
           '}';
     }
   }
-/*
+
   @Nested
   public class Q6 {
     @Test @Tag("Q6")
@@ -617,7 +617,9 @@ public class ORMTest {
 
     @Test @Tag("Q6")
     public void testEqualsHashCodeToStringNotSupported() throws SQLException {
-      interface PersonRepository extends Repository<Person, Long> { }
+      interface PersonRepository extends Repository<Person, Long> {
+        void weirdMethod(String name);
+      }
       var dataSource = new JdbcDataSource();
       dataSource.setURL("jdbc:h2:mem:test");
       ORM.transaction(dataSource, () -> {
@@ -763,6 +765,7 @@ public class ORMTest {
     }
   }
 
+  /*
   @Nested
   class Q8 {
 
