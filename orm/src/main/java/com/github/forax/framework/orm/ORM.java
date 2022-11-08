@@ -202,7 +202,10 @@ public final class ORM {
     InvocationHandler invocationHandler = (proxy,method,args) -> {
       var connection = currentConnection();
       try {
-        System.out.println();;
+        var query = method.getAnnotation(Query.class);
+        if (query != null){
+          return findAll(connection, query.value(), Utils.beanInfo(beanType), Utils.defaultConstructor(beanType),args);
+        }
         switch (method.getName()) {
           case "findAll" -> {
             return findAll(connection, "SELECT * FROM " + tableName, Utils.beanInfo(beanType), Utils.defaultConstructor(beanType));
@@ -261,10 +264,13 @@ public final class ORM {
   public static List<Object> findAll(Connection connection, String s, BeanInfo beanInfo, Constructor<?> constructor, Object... args) throws SQLException {
     List<Object> liste = new ArrayList<>();
     try(PreparedStatement statement = connection.prepareStatement(s)){
-      for(var i =0;i< args.length;i++){
-        Object arg = args[i];
-        statement.setObject(i+1,arg);
+      if (args != null){
+        for(var i =0;i< args.length;i++){
+          Object arg = args[i];
+          statement.setObject(i+1,arg);
+        }
       }
+
       try (ResultSet resultSet = statement.executeQuery()){
         while(resultSet.next()) {
           liste.add(toEntityClass(resultSet,beanInfo,constructor));
