@@ -16,15 +16,12 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Objects;
-import java.util.StringJoiner;
+import java.util.*;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+
+import static java.util.stream.Collectors.joining;
 
 public final class ORM {
   private ORM() {
@@ -91,12 +88,20 @@ public final class ORM {
       connexion.setAutoCommit(false);
 
       try {
-        lambda.run();
-        connexion.commit();
-      } catch (SQLException | RuntimeException exception) {
-        var cause = (exception instanceof UncheckedSQLException unchecked)? unchecked.getCause(): exception;
-        connexion.rollback();
-        throw Utils.rethrow(cause);
+        try {
+          lambda.run();
+          connexion.commit();
+
+        }catch (UncheckedSQLException e){
+          throw e.getCause();
+        }
+      } catch (SQLException | RuntimeException e) {
+       try {
+         connexion.rollback();
+       } catch (SQLException e2){
+         e.addSuppressed(e2);
+       }
+       throw e;
       } finally {
         CONNECTION_THREAD_LOCAL.remove();
       }
@@ -196,25 +201,30 @@ public final class ORM {
 
     InvocationHandler invocationHandler = (proxy,method,args) -> {
       var connection = currentConnection();
-      try{
-        if (method.getName().equals("findAll")) {
-          var query = "SELECT * FROM " + tableName;
-          return findAll(connection, query, Utils.beanInfo(beanType), Utils.defaultConstructor(beanType));
-        }
-        else if(method.getName().equals("equals") || method.getName().equals("hashCode") || method.getName().equals("toString")){
-          throw new UnsupportedOperationException();
-        }else {
-          throw new IllegalStateException();
+      try {
+        System.out.println();;
+        switch (method.getName()) {
+          case "findAll" -> {
+            return findAll(connection, "SELECT * FROM " + tableName, Utils.beanInfo(beanType), Utils.defaultConstructor(beanType));
+          }
+          case "save" -> {
+             return save(connection, tableName,Utils.beanInfo(beanType),args[0],findID(beanType,Utils.beanInfo(beanType)));
+          }
+          case "equals", "hashCode", "toString" -> throw new UnsupportedOperationException();
+          default -> throw new IllegalStateException();
+
+
         }
       }
       catch (SQLException e){
         throw new UncheckedSQLException(e);
       }
+
     };
 
-    return (T) Proxy.newProxyInstance(type.getClassLoader(),
+    return type.cast(Proxy.newProxyInstance(type.getClassLoader(),
     new Class<?>[] { type },
-    invocationHandler);
+    invocationHandler));
   }
 
 
@@ -222,13 +232,20 @@ public final class ORM {
   public   static Object toEntityClass(ResultSet resultSet, BeanInfo beanInfo, Constructor<?> constructor) throws SQLException {
     var instance = Utils.newInstance(constructor);
     var properties = beanInfo.getPropertyDescriptors();
+    int index = 1;
     for (var property : properties) {
-      var name = property.getName();
-      if (name.equals("class")) {
+
+      if (property.getName().equals("class")){
         continue;
       }
-      var value = resultSet.getObject(name);
-      Utils.invokeMethod(instance, property.getWriteMethod(), value);
+      if (property.getWriteMethod() == null) {
+        index++;
+      }
+      else {
+        var value = resultSet.getObject(index++);
+        Utils.invokeMethod(instance, property.getWriteMethod(), value);
+      }
+
     }
     return instance;
   }
@@ -253,6 +270,62 @@ public final class ORM {
     return liste;
   }
 
+  static String createSaveQuery(String tableName, BeanInfo beanInfo){
+    var properties = beanInfo.getPropertyDescriptors();
+    var columnNames = Arrays.stream(properties)
+      .map(PropertyDescriptor::getName)
+      .filter(Predicate.not("class"::equals))
+      .collect(joining(", "));
+
+    var jokers = String.join(", ", Collections.nCopies(properties.length -1,"?"));
+
+    return """
+      MERGE INTO %s (%s) VALUES (%s);\
+      """.formatted(tableName,columnNames,jokers);
+  }
+
+  static PropertyDescriptor findID(Class<?> beanType, BeanInfo beanInfo){
+    var properties = beanInfo.getPropertyDescriptors();
+    return Arrays.stream(properties)
+      .filter(propertyDescriptor -> propertyDescriptor.getReadMethod().isAnnotationPresent(Id.class))
+      .findFirst()
+      .orElse(null);
+  }
+
+
+
+  static Object save(Connection connection,String tableName, BeanInfo beanInfo, Object bean, PropertyDescriptor idProperty) throws SQLException {
+    var connexion = currentConnection();
+    var query = createSaveQuery(tableName,beanInfo);
+    try(PreparedStatement statement = connection.prepareStatement(query, Statement.RETURN_GENERATED_KEYS)){
+
+      var index = 1;
+      for (var property : beanInfo.getPropertyDescriptors()){
+
+        if (property.getName().equals("class")){
+          continue;
+        }
+
+        var getter = property.getReadMethod();
+        var value = Utils.invokeMethod(bean,getter);
+        statement.setObject(index++, value);
+     }
+      statement.executeUpdate();
+      if(idProperty != null){
+        try(ResultSet resultSet = statement.getGeneratedKeys()) {
+          if (resultSet.next()) {
+            var key = resultSet.getObject(1);
+            var setter = idProperty.getWriteMethod();
+            Utils.invokeMethod(bean,setter,key);
+          }
+        }
+      }
+
+
+      return bean;
+    }
+
+  }
 
 
 

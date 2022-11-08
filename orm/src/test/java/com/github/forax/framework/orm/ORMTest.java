@@ -765,7 +765,7 @@ public class ORMTest {
     }
   }
 
-  /*
+
   @Nested
   class Q8 {
 
@@ -985,7 +985,7 @@ public class ORMTest {
       return "Pet { id=" + id + ", name='" + name + "', age=" + age + '}';
     }
   }
-
+/*
   @Nested
   public class Q11 {
     public static final class NoId { }
@@ -1048,7 +1048,7 @@ public class ORMTest {
       });
     }
   }
-
+/*
 
   @Nested
   public class Q12 {
