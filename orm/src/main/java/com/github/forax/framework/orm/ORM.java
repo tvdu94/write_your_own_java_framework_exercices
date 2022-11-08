@@ -203,9 +203,7 @@ public final class ORM {
       var connection = currentConnection();
       try {
         var query = method.getAnnotation(Query.class);
-        if (query != null){
-          return findAll(connection, query.value(), Utils.beanInfo(beanType), Utils.defaultConstructor(beanType),args);
-        }
+
         switch (method.getName()) {
           case "findAll" -> {
             return findAll(connection, "SELECT * FROM " + tableName, Utils.beanInfo(beanType), Utils.defaultConstructor(beanType));
@@ -221,7 +219,20 @@ public final class ORM {
               .stream().findFirst();
           }
           case "equals", "hashCode", "toString" -> throw new UnsupportedOperationException();
-          default -> throw new IllegalStateException();
+          default -> {
+            if (query != null){
+              return findAll(connection, query.value(), Utils.beanInfo(beanType), Utils.defaultConstructor(beanType),args);
+            }
+            if (method.getName().startsWith("findBy")){
+              var propertyName = Introspector.decapitalize(method.getName().substring("findBy".length()));
+              return findAll(connection, """
+                SELECT * FROM %s WHERE %s = ?;
+                """.formatted(tableName,findColumnName(findProperty(beanType,Utils.beanInfo(beanType),propertyName)))
+                , Utils.beanInfo(beanType), Utils.defaultConstructor(beanType),args)
+                .stream().findFirst();
+            }
+            throw  new IllegalStateException();
+          }
 
 
         }
@@ -343,22 +354,13 @@ public final class ORM {
 
   }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+  static PropertyDescriptor findProperty(Object bean, BeanInfo beanInfo, String name){
+    return Arrays.stream(beanInfo.getPropertyDescriptors())
+      .filter(propertyDescriptor -> !propertyDescriptor.getName().equals("class"))
+      .filter(propertyDescriptor -> propertyDescriptor.getName().equals(name))
+      .findFirst()
+      .orElseThrow(IllegalStateException::new);
+  }
 
 
 
