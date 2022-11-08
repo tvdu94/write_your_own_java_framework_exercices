@@ -208,7 +208,14 @@ public final class ORM {
             return findAll(connection, "SELECT * FROM " + tableName, Utils.beanInfo(beanType), Utils.defaultConstructor(beanType));
           }
           case "save" -> {
-             return save(connection, tableName,Utils.beanInfo(beanType),args[0],findID(beanType,Utils.beanInfo(beanType)));
+             return save(connection, tableName,Utils.beanInfo(beanType),args[0],findId(beanType,Utils.beanInfo(beanType)));
+          }
+          case "findById" -> {
+            return findAll(connection, """
+                SELECT * FROM %s WHERE %s = ?;
+                """.formatted(tableName,findColumnName(findId(beanType,Utils.beanInfo(beanType))))
+              , Utils.beanInfo(beanType), Utils.defaultConstructor(beanType),args)
+              .stream().findFirst();
           }
           case "equals", "hashCode", "toString" -> throw new UnsupportedOperationException();
           default -> throw new IllegalStateException();
@@ -251,10 +258,13 @@ public final class ORM {
   }
 
 
-
-  public static List<Object> findAll(Connection connection, String s, BeanInfo beanInfo, Constructor<?> constructor) throws SQLException {
+  public static List<Object> findAll(Connection connection, String s, BeanInfo beanInfo, Constructor<?> constructor, Object... args) throws SQLException {
     List<Object> liste = new ArrayList<>();
     try(PreparedStatement statement = connection.prepareStatement(s)){
+      for(var i =0;i< args.length;i++){
+        Object arg = args[i];
+        statement.setObject(i+1,arg);
+      }
       try (ResultSet resultSet = statement.executeQuery()){
         while(resultSet.next()) {
           liste.add(toEntityClass(resultSet,beanInfo,constructor));
@@ -284,7 +294,7 @@ public final class ORM {
       """.formatted(tableName,columnNames,jokers);
   }
 
-  static PropertyDescriptor findID(Class<?> beanType, BeanInfo beanInfo){
+  static PropertyDescriptor findId(Class<?> beanType, BeanInfo beanInfo){
     var properties = beanInfo.getPropertyDescriptors();
     return Arrays.stream(properties)
       .filter(propertyDescriptor -> propertyDescriptor.getReadMethod().isAnnotationPresent(Id.class))
